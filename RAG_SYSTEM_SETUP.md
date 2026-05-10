@@ -31,13 +31,13 @@ Supabase Dashboard → SQL Editor → Yeni Query → Dosyayı yapıştır → Ru
 
 ```bash
 # Embedding service
-npx supabase functions deploy embed-text --project-ref tlpguwiymccjxfypcpkd
+npx supabase functions deploy embed-text --project-ref anfpgiaaobvmnqboqwdw
 
 # Objection embedding creator
-npx supabase functions deploy create-objection-embedding --project-ref tlpguwiymccjxfypcpkd
+npx supabase functions deploy create-objection-embedding --project-ref anfpgiaaobvmnqboqwdw
 
 # RAG context retriever
-npx supabase functions deploy get-objection-context --project-ref tlpguwiymccjxfypcpkd
+npx supabase functions deploy get-objection-context --project-ref anfpgiaaobvmnqboqwdw
 ```
 
 **Access token kullan:**
@@ -189,7 +189,7 @@ tags              text[]      -- ['negative', 'para_cekme']
 ### 1. Manuel Embedding Testi:
 ```bash
 curl -X POST \
-  https://tlpguwiymccjxfypcpkd.supabase.co/functions/v1/embed-text \
+  https://anfpgiaaobvmnqboqwdw.supabase.co/functions/v1/embed-text \
   -H "Authorization: Bearer [ANON_KEY]" \
   -H "Content-Type: application/json" \
   -d '{"text": "Müşteri küfür etti ama temsilci sakin kaldı"}'

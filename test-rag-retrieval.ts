@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = 'https://tlpguwiymccjxfypcpkd.supabase.co';
+const SUPABASE_URL = 'https://anfpgiaaobvmnqboqwdw.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRscGd1d2l5bWNjanhmeXBjcGtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyODEyNjAsImV4cCI6MjA4Njg1NzI2MH0.tmP1cbQ3_SQFXpFqE5XWYlEfPdEBaBKaR-_SfD7B-J4';
 
 async function testRAGRetrieval() {

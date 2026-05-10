@@ -14,13 +14,13 @@ LiveChat uzerinden gelen musteri chatlerini otomatik senkronize eden, Claude AI 
 ## Onemli Bilgiler
 
 ### Supabase
-- **Project ref:** tlpguwiymccjxfypcpkd
-- **URL:** https://tlpguwiymccjxfypcpkd.supabase.co
-- **DB:** postgresql://postgres:[bbb333444!!**]@db.tlpguwiymccjxfypcpkd.supabase.co:5432/postgres
+- **Project ref:** anfpgiaaobvmnqboqwdw
+- **URL:** https://anfpgiaaobvmnqboqwdw.supabase.co
+- **DB:** postgresql://postgres:[bbb333444!!**]@db.anfpgiaaobvmnqboqwdw.supabase.co:5432/postgres
 
 ### Edge Function Deploy
 ```bash
-SUPABASE_ACCESS_TOKEN=sbp_YOUR_ACCESS_TOKEN_HERE npx supabase functions deploy FUNCTION_NAME --project-ref tlpguwiymccjxfypcpkd
+SUPABASE_ACCESS_TOKEN=sbp_YOUR_ACCESS_TOKEN_HERE npx supabase functions deploy FUNCTION_NAME --project-ref anfpgiaaobvmnqboqwdw
 ```
 
 ### Markalar (Brand ID'leri)

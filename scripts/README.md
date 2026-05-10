@@ -101,7 +101,7 @@ npx tsx scripts/backfill-rag-embeddings.ts --limit=20
 
 ## 🔑 Service Role Key Nereden Alınır?
 
-1. Supabase Dashboard → https://supabase.com/dashboard/project/tlpguwiymccjxfypcpkd/settings/api
+1. Supabase Dashboard → https://supabase.com/dashboard/project/anfpgiaaobvmnqboqwdw/settings/api
 2. **Project API keys** bölümü
 3. **service_role** key'i kopyala (secret!)
 4. `.env` dosyasına ekle:
