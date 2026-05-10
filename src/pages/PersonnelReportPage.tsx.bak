@@ -1,0 +1,600 @@
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { useBrand } from "../lib/brand";
+import {
+  FileText,
+  Download,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  AlertCircle,
+  TrendingUp,
+  Users,
+  Award,
+  AlertTriangle,
+  Target,
+  FileCheck,
+} from "lucide-react";
+
+interface Personnel {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface Report {
+  id: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  progress: number;
+  error_message?: string;
+  report_data?: any;
+  metrics?: any;
+  total_chats?: number;
+  pdf_url?: string;
+  word_url?: string;
+  excel_url?: string;
+  created_at: string;
+  processing_started_at?: string;
+  processing_completed_at?: string;
+  personnel?: Personnel;
+}
+
+export default function PersonnelReportPage() {
+  const { activeBrand } = useBrand();
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
+  const [selectedPersonnel, setSelectedPersonnel] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const [currentReport, setCurrentReport] = useState<Report | null>(null);
+  const [recentReports, setRecentReports] = useState<Report[]>([]);
+  const [pollingInterval, setPollingInterval] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (activeBrand?.brand_id) {
+      loadPersonnelList(activeBrand.brand_id);
+    }
+    loadRecentReports();
+
+    // Cleanup polling on unmount
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [activeBrand?.brand_id]);
+
+  useEffect(() => {
+    // Auto-refresh recent reports every 10 seconds
+    const interval = setInterval(() => {
+      loadRecentReports();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [activeBrand?.brand_id]);
+
+  async function loadPersonnelList(brandId: string) {
+    console.log("Loading personnel for brand:", brandId);
+    
+    // Get unique agents from chats (last 90 days)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    
+    // Step 1: Get unique personnel_ids from chats
+    const { data: chatsData, error: chatsError } = await supabase
+      .from("chats")
+      .select("personnel_id")
+      .eq("brand_id", brandId)
+      .gte("created_at", ninetyDaysAgo.toISOString())
+      .not("personnel_id", "is", null);
+
+    console.log("Chats query:", { count: chatsData?.length, error: chatsError });
+
+    if (chatsError) {
+      console.error("Chats error:", chatsError);
+      alert("Chat verileri yüklenirken hata: " + chatsError.message);
+      return;
+    }
+
+    if (!chatsData || chatsData.length === 0) {
+      alert("Bu marka için son 90 günde chat bulunamadı.");
+      setPersonnel([]);
+      return;
+    }
+
+    // Step 2: Extract unique personnel IDs
+    const uniqueIds = [...new Set(chatsData.map((c: any) => c.personnel_id).filter(Boolean))];
+    console.log("Unique personnel IDs:", uniqueIds.length);
+
+    if (uniqueIds.length === 0) {
+      alert("Chat'lerde personel ataması bulunamadı.");
+      setPersonnel([]);
+      return;
+    }
+
+    // Step 3: Get personnel details
+    const { data: personnelData, error: personnelError } = await supabase
+      .from("personnel")
+      .select("id, name, email")
+      .in("id", uniqueIds);
+
+    console.log("Personnel query:", { count: personnelData?.length, error: personnelError });
+
+    if (personnelError) {
+      console.error("Personnel error:", personnelError);
+      alert("Personel bilgileri yüklenirken hata: " + personnelError.message);
+      return;
+    }
+
+    if (personnelData && personnelData.length > 0) {
+      const sorted = personnelData.sort((a, b) => a.name.localeCompare(b.name));
+      console.log("Personnel loaded:", sorted);
+      setPersonnel(sorted);
+    } else {
+      alert("Personel kayıtları bulunamadı.");
+      setPersonnel([]);
+    }
+  }
+
+  async function loadRecentReports() {
+    if (!activeBrand?.brand_id) return;
+
+    const { data } = await supabase
+      .from("personnel_reports")
+      .select(`
+        id,
+        status,
+        progress,
+        total_chats,
+        created_at,
+        processing_completed_at,
+        personnel:personnel_id (
+          id,
+          name
+        )
+      `)
+      .eq("brand_id", activeBrand.brand_id)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (data) {
+      setRecentReports(data as Report[]);
+    }
+  }
+
+  async function generateReport() {
+    if (!selectedPersonnel || !startDate || !endDate) {
+      alert("Lütfen tüm alanları doldurun");
+      return;
+    }
+
+    if (new Date(endDate) < new Date(startDate)) {
+      alert("Bitiş tarihi başlangıç tarihinden önce olamaz");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert("Oturum bulunamadı");
+        return;
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-personnel-report`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            personnel_id: selectedPersonnel,
+            brand_id: activeBrand?.brand_id,
+            start_date: new Date(startDate).toISOString(),
+            end_date: new Date(endDate + "T23:59:59").toISOString(),
+            report_type: "comprehensive",
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Rapor oluşturulamadı");
+      }
+
+      setCurrentReport({
+        id: result.report_id,
+        status: "pending",
+        progress: 0,
+        created_at: new Date().toISOString(),
+      } as Report);
+
+      // Start polling for report status
+      startPolling(result.report_id);
+
+      alert("Rapor oluşturma başlatıldı! Sayfadan çıkabilirsiniz, tamamlandığında bildirim alacaksınız.");
+      
+      // Reload recent reports
+      loadRecentReports();
+    } catch (error: any) {
+      console.error("Report generation error:", error);
+      alert("Hata: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function startPolling(reportId: string) {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+
+    const interval = setInterval(async () => {
+      await checkReportStatus(reportId);
+    }, 3000); // Check every 3 seconds
+
+    setPollingInterval(interval as any);
+  }
+
+  async function checkReportStatus(reportId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-personnel-report-status?report_id=${reportId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success && result.report) {
+        setCurrentReport(result.report);
+
+        // Stop polling if completed or failed
+        if (result.report.status === "completed" || result.report.status === "failed") {
+          if (pollingInterval) {
+            clearInterval(pollingInterval);
+            setPollingInterval(null);
+          }
+
+          // Show notification
+          if (result.report.status === "completed") {
+            showNotification("✅ Rapor Hazır!", `${result.report.personnel?.name || "Personel"} raporu tamamlandı.`);
+          } else {
+            showNotification("❌ Rapor Başarısız", "Rapor oluşturulamadı.");
+          }
+
+          // Reload recent reports
+          loadRecentReports();
+        }
+      }
+    } catch (error) {
+      console.error("Status check error:", error);
+    }
+  }
+
+  function showNotification(title: string, body: string) {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, { body, icon: "/logo.png" });
+    }
+  }
+
+  async function viewReport(reportId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-personnel-report-status?report_id=${reportId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success && result.report) {
+        setCurrentReport(result.report);
+      }
+    } catch (error) {
+      console.error("View report error:", error);
+    }
+  }
+
+  function getStatusIcon(status: string) {
+    switch (status) {
+      case "pending":
+        return <Clock className="w-5 h-5 text-yellow-500" />;
+      case "processing":
+        return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
+      case "completed":
+        return <CheckCircle className="w-5 h-5 text-green-500" />;
+      case "failed":
+        return <XCircle className="w-5 h-5 text-red-500" />;
+      default:
+        return <Clock className="w-5 h-5 text-gray-500" />;
+    }
+  }
+
+  function getStatusText(status: string) {
+    switch (status) {
+      case "pending":
+        return "Bekliyor";
+      case "processing":
+        return "İşleniyor";
+      case "completed":
+        return "Tamamlandı";
+      case "failed":
+        return "Başarısız";
+      default:
+        return status;
+    }
+  }
+
+  function formatDate(dateString: string) {
+    return new Date(dateString).toLocaleString("tr-TR", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+          📊 Personel Performans Raporu
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Detaylı AI destekli personel analizi ve raporlama sistemi
+        </p>
+      </div>
+
+      {/* Report Generation Form */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+          <FileText className="w-5 h-5" />
+          Yeni Rapor Oluştur
+        </h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Personel</label>
+            <select
+              value={selectedPersonnel}
+              onChange={(e) => setSelectedPersonnel(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            >
+              <option value="">Seçiniz...</option>
+              {personnel.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Başlangıç Tarihi</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Bitiş Tarihi</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+            />
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={generateReport}
+              disabled={loading || !selectedPersonnel || !startDate || !endDate}
+              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Oluşturuluyor...
+                </>
+              ) : (
+                <>
+                  <FileCheck className="w-4 h-4" />
+                  Rapor Oluştur
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
+            <div className="text-sm text-blue-800 dark:text-blue-300">
+              <p className="font-semibold mb-1">💡 Bilgi:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Rapor oluşturma <strong>arka planda</strong> çalışır, sayfadan çıkabilirsiniz</li>
+                <li>Tamamlandığında <strong>push notification</strong> alacaksınız</li>
+                <li>API kredi optimizasyonu sayesinde <strong>uygun maliyetli</strong></li>
+                <li>Rapor <strong>PDF, Word, Excel</strong> formatlarında indirilebilir</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Current Report Progress */}
+      {currentReport && (currentReport.status === "pending" || currentReport.status === "processing") && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+            Rapor İşleniyor
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between mb-2">
+                <span className="text-sm font-medium">İlerleme</span>
+                <span className="text-sm font-medium">{currentReport.progress}%</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                <div
+                  className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+                  style={{ width: `${currentReport.progress}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              <p>Personel: <strong>{currentReport.personnel?.name || "..."}</strong></p>
+              <p>Durum: <strong>{getStatusText(currentReport.status)}</strong></p>
+              {currentReport.processing_started_at && (
+                <p>Başlangıç: {formatDate(currentReport.processing_started_at)}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Completed Report View */}
+      {currentReport && currentReport.status === "completed" && currentReport.report_data && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Award className="w-6 h-6 text-green-500" />
+              {currentReport.personnel?.name || "Personel"} - Performans Raporu
+            </h2>
+            <div className="flex gap-2">
+              <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                <Download className="w-4 h-4" />
+                PDF İndir
+              </button>
+              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                <Download className="w-4 h-4" />
+                Word İndir
+              </button>
+            </div>
+          </div>
+
+          {/* Metrics Summary */}
+          {currentReport.metrics && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  <span className="text-sm font-medium">Toplam Chat</span>
+                </div>
+                <p className="text-2xl font-bold">{currentReport.metrics.total_chats || 0}</p>
+              </div>
+
+              <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                  <span className="text-sm font-medium">Ortalama Skor</span>
+                </div>
+                <p className="text-2xl font-bold">{currentReport.metrics.avg_score || 0} / 100</p>
+              </div>
+
+              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="w-5 h-5 text-purple-600" />
+                  <span className="text-sm font-medium">Ekip Ortalaması</span>
+                </div>
+                <p className="text-2xl font-bold">{currentReport.metrics.team_avg || 0} / 100</p>
+              </div>
+
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="w-5 h-5 text-yellow-600" />
+                  <span className="text-sm font-medium">Sıralama</span>
+                </div>
+                <p className="text-2xl font-bold">
+                  {currentReport.metrics.rank || 0} / {currentReport.metrics.total_agents || 0}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* AI Report */}
+          <div className="prose dark:prose-invert max-w-none">
+            <div className="whitespace-pre-wrap bg-gray-50 dark:bg-gray-900 rounded-lg p-6">
+              {currentReport.report_data.ai_report}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Reports */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-semibold mb-4">Son Raporlar</h2>
+
+        <div className="space-y-3">
+          {recentReports.length === 0 ? (
+            <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+              Henüz rapor oluşturulmamış
+            </p>
+          ) : (
+            recentReports.map((report) => (
+              <div
+                key={report.id}
+                className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
+                onClick={() => viewReport(report.id)}
+              >
+                <div className="flex items-center gap-3">
+                  {getStatusIcon(report.status)}
+                  <div>
+                    <p className="font-medium">
+                      {report.personnel?.name || "Personel"}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {formatDate(report.created_at)}
+                      {report.total_chats && ` • ${report.total_chats} chat`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {report.status === "processing" && (
+                    <span className="text-sm font-medium text-blue-600">
+                      {report.progress}%
+                    </span>
+                  )}
+                  {report.status === "completed" && (
+                    <button className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                      Görüntüle
+                    </button>
+                  )}
+                  {report.status === "failed" && (
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
